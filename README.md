@@ -1,7 +1,5 @@
 # Maison-du-droit---projet-SD-Vannes
 
-Bien sûr. Voici la version la plus simple et la plus courte de ton README pour le lancement de l'application, sans utiliser de tableaux :
-
 README : Outil de Reporting 
 1. Rôle des Fichiers
 Le fichier app.py c'est le Dashboard. Il contient tout le code Python qui génère les graphiques et l'interface web, en utilisant les extensions Dash, Plotly, et Pandas.
