@@ -9,9 +9,9 @@ Le fichier Lancer_Application.bat est le lanceur rapide. C'est un simple fichier
 
 2. Lancement
 Assurez-vous que Python et les bibliothèques nécessaires sont installés sur votre ordinateur.
-###
-pip install dash pandas plotly dash-bootstrap-components requests
-###
+
+### pip install dash pandas plotly dash-bootstrap-components requests
+
 Double-cliquez sur le fichier Lancer_Application.bat.
 
 Une fenêtre noire va s'ouvrir. Elle doit rester ouverte tant que vous utilisez l'application, car elle maintient le serveur actif.
