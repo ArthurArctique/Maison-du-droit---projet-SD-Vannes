@@ -93,7 +93,7 @@ GPS_CACHE = build_gps_dictionary(LISTE_VILLES_CIBLES)
 # 3. CHARGEMENT SQLITE (NOMS NATIFS)
 # =============================================================================
 def load_data_from_sqlite():
-    db_filename = "base_donnees.db"
+    db_filename = "../database.db"
     print(f"Connexion SQL: {db_filename}...")
     
     try:
