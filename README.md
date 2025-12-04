@@ -2,6 +2,7 @@
 
 README : Outil de Reporting 
 1. Rôle des Fichiers
+
 Le fichier app.py c'est le Dashboard. Il contient tout le code Python qui génère les graphiques et l'interface web, en utilisant les extensions Dash, Plotly, et Pandas.
 
 Le fichier Lancer_Application.bat est le lanceur rapide. C'est un simple fichier Windows qui tape la commande python app.py pour vous, démarrant ainsi le serveur web et ouvrant l'application dans votre navigateur.
