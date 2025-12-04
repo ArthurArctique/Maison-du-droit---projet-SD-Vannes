@@ -8,14 +8,14 @@ import random
 import threading
 import time
 import requests 
+import sqlite3
 import json
 import os
 from datetime import datetime
 
 # =============================================================================
-# 1. LISTE DES VILLES (SOURCE UTILISATEUR)
+# 1. LISTE DES VILLES (POUR LE GÉOCODAGE AUTOMATIQUE)
 # =============================================================================
-# J'ai nettoyé ta liste brute pour en faire une liste Python utilisable
 LISTE_VILLES_CIBLES = [
     "Allaire", "Ambon", "Arradon", "Arzal", "Arzon", "Augan", "Auray", "Baden", "Baud", "Béganne", "Beignon", 
     "Belle-Ile", "Belz", "Berné", "Berric", "Bieuzy", "Bignan", "Billers", "Billio", "Bohal", "Brandérion", 
@@ -55,138 +55,123 @@ LISTE_VILLES_CIBLES = [
 ]
 
 # =============================================================================
-# 2. SYSTÈME DE GÉOCODAGE AUTOMATIQUE (API)
+# 2. SYSTÈME GÉOCODAGE API
 # =============================================================================
 CACHE_FILE = "coords_cache.json"
 
 def get_coords_from_api(ville):
-    """Interroge l'API Geo Gouv pour trouver les coordonnées d'une ville"""
     try:
-        # On nettoie le nom pour l'API (ex: Vannes Kercado -> Vannes)
         clean_ville = ville.split(" -")[0].split("(")[0].strip()
         url = f"https://api-adresse.data.gouv.fr/search/?q={clean_ville}&limit=1"
         response = requests.get(url, timeout=2)
-        if response.status_code == 200:
-            data = response.json()
-            if data['features']:
-                # L'API renvoie [lon, lat], on veut [lat, lon]
-                coords = data['features'][0]['geometry']['coordinates']
-                return [coords[1], coords[0]]
-    except:
-        pass
-    return None # Échec
+        if response.status_code == 200 and response.json()['features']:
+            coords = response.json()['features'][0]['geometry']['coordinates']
+            return [coords[1], coords[0]]
+    except: pass
+    return None
 
 def build_gps_dictionary(villes_list):
-    """Construit ou charge le dictionnaire GPS"""
     coords_dict = {}
-    
-    # 1. Essayer de charger depuis le fichier cache local
     if os.path.exists(CACHE_FILE):
-        with open(CACHE_FILE, 'r', encoding='utf-8') as f:
-            coords_dict = json.load(f)
-            print("✅ Cache GPS chargé.")
-
-    # 2. Vérifier s'il manque des villes et les chercher
-    missing_villes = [v for v in villes_list if v not in coords_dict]
+        with open(CACHE_FILE, 'r', encoding='utf-8') as f: coords_dict = json.load(f)
     
-    if missing_villes:
-        print(f"🌍 Géocodage de {len(missing_villes)} nouvelles villes (API Gouv)...")
-        # On ajoute Vannes par défaut pour les cas désespérés
+    missing = [v for v in villes_list if v not in coords_dict]
+    if missing:
+        print(f"🌍 Géocodage API de {len(missing)} villes...")
         coords_dict["Vannes"] = [47.6582, -2.7608]
-        
-        for i, ville in enumerate(missing_villes):
+        for i, ville in enumerate(missing):
             gps = get_coords_from_api(ville)
-            if gps:
-                coords_dict[ville] = gps
-            else:
-                # Si non trouvé, on met Vannes par défaut (pour ne pas planter)
-                coords_dict[ville] = [47.6582, -2.7608] 
-            
-            # Petit délai pour être gentil avec l'API
+            coords_dict[ville] = gps if gps else [47.6582, -2.7608]
             if i % 10 == 0: time.sleep(0.1)
-        
-        # 3. Sauvegarder le nouveau cache
-        with open(CACHE_FILE, 'w', encoding='utf-8') as f:
-            json.dump(coords_dict, f, ensure_ascii=False)
-            print("💾 Cache GPS mis à jour.")
+        with open(CACHE_FILE, 'w', encoding='utf-8') as f: json.dump(coords_dict, f, ensure_ascii=False)
             
     return coords_dict
 
-# Initialisation du dictionnaire GPS au démarrage
 GPS_CACHE = build_gps_dictionary(LISTE_VILLES_CIBLES)
 
-
 # =============================================================================
-# 3. CHARGEMENT DES DONNÉES (AVEC GÉOCODAGE INTÉGRÉ)
+# 3. CHARGEMENT SQLITE (NOMS NATIFS)
 # =============================================================================
-def load_real_data():
-    filename = "donnees.xlsx"
-    print(f"Chargement du fichier {filename}...")
+def load_data_from_sqlite():
+    db_filename = "base_donnees.db"
+    print(f"Connexion SQL: {db_filename}...")
     
-    mois_map = {'Jan': 1, 'Fev': 2, 'Mar': 3, 'Avr': 4, 'Mai': 5, 'Juin': 6, 'Juil': 7, 'Aoû': 8, 'Sep': 9, 'Oct': 10, 'Nov': 11, 'Déc': 12}
-
     try:
-        xl = pd.ExcelFile(filename)
-        all_dfs = []
-        for sheet in xl.sheet_names:
-            sheet_clean = sheet.strip()
-            mois_num = next((val for key, val in mois_map.items() if sheet_clean.startswith(key)), None)
-            if mois_num:
-                df_temp = pd.read_excel(filename, sheet_name=sheet)
-                df_temp['Date_Calculee'] = datetime(2024, mois_num, 1)
-                all_dfs.append(df_temp)
-
-        if not all_dfs: return generate_fake_backup()
-        df = pd.concat(all_dfs, ignore_index=True)
+        conn = sqlite3.connect(db_filename)
+        # On charge la table telle quelle
+        query = "SELECT * FROM ENTRETIEN"
+        df = pd.read_sql_query(query, conn)
+        conn.close()
+        
+        if df.empty:
+            print("⚠️ Table ENTRETIEN vide.")
+            return generate_fake_backup()
 
     except Exception as e:
-        print(f"ERREUR LECTURE: {e}")
+        print(f"ERREUR SQL: {e}")
         return generate_fake_backup()
 
-    # MAPPING
-    mapping = {'Sit° Fam': 'Situation', 'Prof°': 'Profession', 'Dem.1': 'Demande_Type', 'Mode': 'Mode_Contact', 'Domicile': 'Ville'}
-    df = df.rename(columns=mapping)
+    # --- PAS DE RENOMMAGE (On utilise les noms SQL) ---
+    # Colonnes attendues : DATE_ENT, SEXE, AGE, SIT_FAM, PROFESSION, VIENT_PR, MODE
+    
+    # --- NETTOYAGE & ENRICHISSEMENT ---
+    
+    # Dates (Basé sur DATE_ENT)
+    if 'DATE_ENT' in df.columns:
+        df['DATE_ENT'] = pd.to_datetime(df['DATE_ENT'], errors='coerce').fillna(datetime(2024, 1, 1))
+        df['Annee'] = df['DATE_ENT'].dt.year.astype(str)
+        df['Mois'] = df['DATE_ENT'].dt.strftime('%Y-%m')
+        df['Trimestre'] = 'T' + ((df['DATE_ENT'].dt.month - 1) // 3 + 1).astype(str)
+    else:
+        # Création de données temporelles par défaut si DATE_ENT manque
+        df['DATE_ENT'] = datetime(2024, 1, 1)
+        df['Annee'] = "2024"
+        df['Mois'] = "2024-01"
+        df['Trimestre'] = "T1"
 
-    # NETTOYAGE
-    if 'Age' in df.columns: df['Age'] = pd.to_numeric(df['Age'], errors='coerce').fillna(0).astype(int)
-    df['Annee'] = df['Date_Calculee'].dt.year.astype(str)
-    df['Mois'] = df['Date_Calculee'].dt.strftime('%Y-%m')
-    df['Trimestre'] = 'T' + ((df['Date_Calculee'].dt.month - 1) // 3 + 1).astype(str)
+    # Age numérique
+    if 'AGE' in df.columns:
+        df['AGE'] = pd.to_numeric(df['AGE'], errors='coerce').fillna(0).astype(int)
 
-    # --- APPLICATION DU GÉOCODAGE ---
+    # --- GÉOCODAGE ---
+    # On cherche une colonne ville/commune. Si absente, on met Vannes.
+    col_ville = next((c for c in ['VILLE', 'COMMUNE', 'Domicile'] if c in df.columns), None)
+    
+    if col_ville:
+        df['Ref_Ville'] = df[col_ville] # On normalise le nom pour le code
+    else:
+        df['Ref_Ville'] = "Vannes"
+
     def apply_gps(ville_nom, type_coord):
         v_clean = str(ville_nom).strip()
-        # Cherche exacte
         coords = GPS_CACHE.get(v_clean)
-        
-        # Si pas trouvé, cherche une correspondance partielle
         if not coords:
+            # Recherche floue
             for k, val in GPS_CACHE.items():
-                if k in v_clean or v_clean in k:
-                    coords = val
-                    break
-        
-        # Si toujours pas trouvé, Vannes par défaut
+                if k in v_clean: coords = val; break
         if not coords: coords = GPS_CACHE.get("Vannes", [47.6582, -2.7608])
         
-        # Bruit aléatoire pour la carte
         bruit = random.uniform(-0.005, 0.005)
         return coords[0] + bruit if type_coord == 'lat' else coords[1] + bruit
 
-    if 'Ville' in df.columns:
-        df['Latitude'] = df['Ville'].apply(lambda x: apply_gps(x, 'lat'))
-        df['Longitude'] = df['Ville'].apply(lambda x: apply_gps(x, 'lon'))
-    
-    return df.sort_values('Date_Calculee')
+    df['Latitude'] = df['Ref_Ville'].apply(lambda x: apply_gps(x, 'lat'))
+    df['Longitude'] = df['Ref_Ville'].apply(lambda x: apply_gps(x, 'lon'))
+
+    return df.sort_values('DATE_ENT')
 
 def generate_fake_backup():
     print("!!! MODE SECOURS !!!")
-    return pd.DataFrame([{'Sexe':'F','Age':30,'Situation':'Célib','Profession':'Emp','Demande_Type':'Log','Mode_Contact':'Tel','Ville':'Vannes','Date_Calculee':datetime(2024,1,1),'Annee':'2024','Mois':'2024-01','Trimestre':'T1','Latitude':47.65,'Longitude':-2.76}])
+    return pd.DataFrame([{
+        'SEXE':'Femme','AGE':30,'SIT_FAM':'Célibataire','PROFESSION':'Employé',
+        'VIENT_PR':'Logement','MODE':'Téléphone','Ref_Ville':'Vannes',
+        'DATE_ENT':datetime(2024,1,1),'Annee':'2024','Mois':'2024-01','Trimestre':'T1',
+        'Latitude':47.65,'Longitude':-2.76
+    }])
 
-df_global = load_real_data()
+df_global = load_data_from_sqlite()
 
 # =============================================================================
-# 4. DESIGN & APP
+# 4. CONFIGURATION DASH
 # =============================================================================
 COLOR_NAVY = "#003366"
 COLOR_GOLD = "#D4AF37"
@@ -211,9 +196,9 @@ sidebar = html.Div([
         html.Label("Année", style={'color': 'white', 'marginTop': '10px'}),
         dcc.Dropdown(id='filter-year', options=[{'label': 'Tout', 'value': 'ALL'}] + [{'label': str(y), 'value': str(y)} for y in sorted(df_global['Annee'].unique())], value='ALL', clearable=False, style={'borderRadius': '5px'}),
         html.Label("Période", style={'color': 'white', 'marginTop': '10px'}),
-        dcc.Dropdown(id='filter-period', options=[{'label': 'Tout', 'value': 'ALL'}, {'label': 'T1', 'value': 'T1'}, {'label': 'T2', 'value': 'T2'}, {'label': 'T3', 'value': 'T3'}, {'label': 'T4', 'value': 'T4'}], value='ALL', style={'borderRadius': '5px'}),
+        dcc.Dropdown(id='filter-period', options=[{'label': 'Toute l\'année', 'value': 'ALL'}, {'label': 'T1', 'value': 'T1'}, {'label': 'T2', 'value': 'T2'}, {'label': 'T3', 'value': 'T3'}, {'label': 'T4', 'value': 'T4'}], value='ALL', style={'borderRadius': '5px'}),
         html.Label("Ville", style={'color': 'white', 'marginTop': '10px'}),
-        dcc.Dropdown(id='filter-city', options=[{'label': 'Toutes', 'value': 'ALL'}] + [{'label': str(v), 'value': str(v)} for v in sorted(df_global['Ville'].astype(str).unique())], value='ALL', style={'borderRadius': '5px'}),
+        dcc.Dropdown(id='filter-city', options=[{'label': 'Toutes', 'value': 'ALL'}] + [{'label': str(v), 'value': str(v)} for v in sorted(df_global['Ref_Ville'].astype(str).unique())], value='ALL', style={'borderRadius': '5px'}),
     ], className="filter-box fade-in-left", style={'animationDelay': '0.2s'})
 ], style={"position": "fixed", "top": 0, "left": 0, "bottom": 0, "width": "18rem", "padding": "2rem 1rem", "background-color": COLOR_NAVY, "color": "white", "display": "flex", "flexDirection": "column", "overflowY": "auto"}, className="no-print")
 
@@ -227,13 +212,16 @@ app.layout = html.Div([dcc.Location(id="url"), dcc.Store(id='client-view-index',
     [State("client-view-index", "data"), State("activity-view-index", "data"), State("store-current-tab", "data")]
 )
 def update_dashboard(b1, b2, b3, b_arr_cli, b_arr_act, f_year, f_period, f_city, cli_idx, act_idx, current_tab):
+    
+    # 1. FILTRAGE
     dff = df_global.copy()
     if f_year != 'ALL': dff = dff[dff['Annee'] == f_year]
     if f_period != 'ALL': dff = dff[dff['Trimestre'] == f_period]
-    if f_city != 'ALL': dff = dff[dff['Ville'].astype(str) == f_city]
+    if f_city != 'ALL': dff = dff[dff['Ref_Ville'].astype(str) == f_city]
 
     ctx = dash.callback_context
     trigger_id = ctx.triggered[0]['prop_id'].split('.')[0] if ctx.triggered else "btn-activite"
+
     if "filter" in trigger_id: trigger_id = current_tab
     else:
         if trigger_id == "btn-arrow-next": cli_idx = (cli_idx + 1) % 2; trigger_id = "btn-clients"
@@ -245,11 +233,12 @@ def update_dashboard(b1, b2, b3, b_arr_cli, b_arr_act, f_year, f_period, f_city,
     content = html.Div("Aucune donnée.", className="text-center mt-5 text-muted")
 
     if not dff.empty:
+        # ACTIVITE (Utilisation de MODE et VIENT_PR)
         if trigger_id == "btn-activite":
             colors[0] = "primary"; arrow_act = {'display': 'inline-block'}
             if act_idx == 0:
-                fig1 = px.bar(dff['Mode_Contact'].value_counts(), title="Modes de Contact", color_discrete_sequence=[COLOR_NAVY])
-                fig2 = px.bar(dff['Demande_Type'].value_counts(), title="Types de Demandes", orientation='h', color_discrete_sequence=[COLOR_GOLD])
+                fig1 = px.bar(dff['MODE'].value_counts(), title="Modes de Contact", color_discrete_sequence=[COLOR_NAVY])
+                fig2 = px.bar(dff['VIENT_PR'].value_counts(), title="Types de Demandes", orientation='h', color_discrete_sequence=[COLOR_GOLD])
                 content = dbc.Row([dbc.Col(dcc.Graph(figure=clean_layout(fig1)), width=6), dbc.Col(dcc.Graph(figure=clean_layout(fig2)), width=6)])
             else:
                 act_btn_txt = [html.I(className="bi bi-arrow-left me-2"), html.Span("Retour Synthèse")]; act_btn_cls = "btn-warning text-white ms-auto shadow-sm btn-anim"
@@ -258,18 +247,22 @@ def update_dashboard(b1, b2, b3, b_arr_cli, b_arr_act, f_year, f_period, f_city,
                 fig.add_trace(go.Bar(x=df_t['Mois'], y=df_t['Nombre'], name='Volume', marker_color=COLOR_NAVY, opacity=0.3))
                 fig.add_trace(go.Scatter(x=df_t['Mois'], y=df_t['Nombre'], name='Tendance', mode='lines+markers', line=dict(color=COLOR_GOLD, width=3), fill='tozeroy', fillcolor='rgba(212, 175, 55, 0.2)'))
                 content = dbc.Row([dbc.Col(dcc.Graph(figure=clean_layout(fig).update_layout(title="Évolution")), width=12)])
+        
+        # CLIENTS (Utilisation de AGE, SIT_FAM, PROFESSION, SEXE)
         elif trigger_id == "btn-clients":
             colors[1] = "primary"; arrow_cli = {'display': 'inline-block'}
             if cli_idx == 0:
-                fig_a = px.histogram(dff, x="Age", title="Âges", color_discrete_sequence=[COLOR_NAVY])
-                fig_b = px.bar(dff['Situation'].value_counts(), title="Situation Familiale", color_discrete_sequence=[COLOR_GOLD])
+                fig_a = px.histogram(dff, x="AGE", title="Âges", color_discrete_sequence=[COLOR_NAVY])
+                fig_b = px.bar(dff['SIT_FAM'].value_counts(), title="Situation Familiale", color_discrete_sequence=[COLOR_GOLD])
             else:
-                fig_a = px.pie(dff, names='Profession', color_discrete_sequence=px.colors.sequential.Blues)
-                fig_b = px.pie(dff, names='Sexe', title="H/F", hole=0.5, color_discrete_sequence=[COLOR_NAVY, COLOR_GOLD])
+                fig_a = px.pie(dff, names='PROFESSION', color_discrete_sequence=px.colors.sequential.Blues)
+                fig_b = px.pie(dff, names='SEXE', title="H/F", hole=0.5, color_discrete_sequence=[COLOR_NAVY, COLOR_GOLD])
             content = dbc.Row([dbc.Col(dcc.Graph(figure=clean_layout(fig_a)), width=6), dbc.Col(dcc.Graph(figure=clean_layout(fig_b)), width=6)])
+        
+        # CARTE (Utilisation de VIENT_PR pour la couleur)
         elif trigger_id == "btn-carte":
             colors[2] = "primary"
-            fig = px.scatter_mapbox(dff, lat="Latitude", lon="Longitude", size=[10]*len(dff), color="Demande_Type", zoom=9, height=600, opacity=0.7)
+            fig = px.scatter_mapbox(dff, lat="Latitude", lon="Longitude", size=[10]*len(dff), color="VIENT_PR", zoom=9, height=600, opacity=0.7)
             content = dbc.Row([dbc.Col(dcc.Graph(figure=fig.update_layout(mapbox_style="carto-positron", margin={"r":0,"t":0,"l":0,"b":0})), width=12)])
 
     return content, colors[0], colors[1], colors[2], arrow_cli, arrow_act, act_btn_txt, act_btn_cls, cli_idx, act_idx, current_tab
@@ -279,9 +272,9 @@ def render_main(path, fy, fp, fc):
     dff = df_global.copy()
     if fy != 'ALL': dff = dff[dff['Annee'] == fy]
     if fp != 'ALL': dff = dff[dff['Trimestre'] == fp]
-    if fc != 'ALL': dff = dff[dff['Ville'].astype(str) == fc]
+    if fc != 'ALL': dff = dff[dff['Ref_Ville'].astype(str) == fc]
     
-    nb, top, age = len(dff), dff['Demande_Type'].mode()[0] if len(dff)>0 else "-", int(dff['Age'].mean()) if len(dff)>0 else 0
+    nb, top, age = len(dff), dff['VIENT_PR'].mode()[0] if len(dff)>0 else "-", int(dff['AGE'].mean()) if len(dff)>0 else 0
 
     if path in ["/", "/dashboard"]:
         return [html.Div([
@@ -302,8 +295,8 @@ def render_main(path, fy, fp, fc):
     elif path == "/data":
         return [html.Div([html.H2("Données", style={'color': COLOR_NAVY}), html.Hr(style={'borderColor': COLOR_GOLD}), dash_table.DataTable(data=dff.to_dict('records'), columns=[{"name": i, "id": i} for i in dff.columns if i not in ['Latitude', 'Longitude']], page_size=15, style_header={'backgroundColor': COLOR_NAVY, 'color': 'white'}, filter_action="native", sort_action="native")], className="fade-in-up")]
     elif path == "/export":
-        f1 = px.bar(dff['Mode_Contact'].value_counts(), title="Modes", color_discrete_sequence=[COLOR_NAVY])
-        f2 = px.pie(dff, names='Profession', color_discrete_sequence=px.colors.sequential.Blues)
+        f1 = px.bar(dff['MODE'].value_counts(), title="Modes", color_discrete_sequence=[COLOR_NAVY])
+        f2 = px.pie(dff, names='PROFESSION', color_discrete_sequence=px.colors.sequential.Blues)
         return [html.Div([html.Div([html.H2("PDF", style={'color': COLOR_NAVY}), html.Button("🖨️ Imprimer", id="btn-print", className="btn btn-lg btn-warning text-white mb-5")], className="text-center no-print"), html.Div([html.H1("Rapport", className="text-center mb-5"), dbc.Row([dbc.Col(dcc.Graph(figure=clean_layout(f1)), width=6), dbc.Col(dcc.Graph(figure=clean_layout(f2)), width=6)])], style={'backgroundColor': 'white', 'padding': '20px'})], className="fade-in-up")]
 
 app.index_string = '''<!DOCTYPE html><html><head>{%metas%}<title>MDD Reporting</title>{%favicon%}{%css%}<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.5.0/font/bootstrap-icons.css"><style>.btn-primary { background-color: #003366 !important; border-color: #003366 !important; }.btn-warning { background-color: #D4AF37 !important; border-color: #D4AF37 !important; color: white !important;}.btn-suite { background-color: white; color: #D4AF37; border: 2px solid #D4AF37; border-radius: 50px; padding: 5px 20px; font-weight: bold; transition: all 0.3s ease; }.btn-anim:hover { transform: scale(1.05); box-shadow: 0 5px 15px rgba(0,0,0,0.2) !important; }.btn-suite:hover { background-color: #D4AF37; color: white; transform: scale(1.05); }.filter-box { background-color: #2C3E50; padding: 15px; border-radius: 10px; margin-top: auto; margin-bottom: 20px; }.nav-link-custom { color: rgba(255,255,255,0.8) !important; font-size: 1.1rem; margin-bottom: 10px; transition: 0.3s; }.nav-link-custom:hover { padding-left: 20px; color: white !important; }.nav-link-custom.active { background-color: #D4AF37 !important; color: white !important; font-weight: bold; }@keyframes slideInLeft { from { opacity: 0; transform: translateX(-50px); } to { opacity: 1; transform: translateX(0); } }.fade-in-left { animation: slideInLeft 0.8s ease-out forwards; }@keyframes fadeInUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }.fade-in-up { animation: fadeInUp 0.8s ease-out forwards; }@media print { .no-print { display: none !important; } #page-content { margin-left: 0 !important; width: 100%; padding: 0 !important; background-color: white !important;} }</style></head><body>{%app_entry%}<footer>{%config%}{%scripts%}{%renderer%}</footer></body></html>'''
