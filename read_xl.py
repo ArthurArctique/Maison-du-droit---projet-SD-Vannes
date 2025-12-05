@@ -25,6 +25,7 @@ class Read_xl:
             df = self.extraction_dataframe(feuille_df).astype(str).replace(self.carte)
 
             self.ajout_bdd_sqlite(df,mois)
+        json.dump(self.carte,open('carte_quest.json','w',encoding='utf-8'))
 
     def extraction_dataframe(self,df:pd.DataFrame):
         tabs_index = df.index[df.iloc[:, 1] == "Mode"].tolist()
