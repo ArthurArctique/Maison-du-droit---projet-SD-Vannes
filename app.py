@@ -63,7 +63,7 @@ from datetime import datetime
 # 3. CHARGEMENT SQLITE (STRICT)
 # =============================================================================
 def load_data_from_sqlite():
-    db_names = ["database.db", "../database.db"]
+    db_names = ["database.db", "../database.db", "base_donnees.db"]
     db_filename = None
     
     for name in db_names:
