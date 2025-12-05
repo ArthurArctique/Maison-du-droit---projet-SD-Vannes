@@ -1,3 +1,4 @@
 {
-    "DATA_FILE_PATH" : "../data.xlsx"
+    "DATA_FILE_PATH" : "../data.xlsx",
+    "BDD_FILE_PATH" : "../database.db"
 }
