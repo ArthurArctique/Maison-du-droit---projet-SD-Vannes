@@ -1,4 +1,10 @@
 {
     "DATA_FILE_PATH" : "../data.xlsx",
-    "BDD_FILE_PATH" : "../database.db"
+    "POSTGRES": {
+        "host": "localhost",
+        "port": "5432",
+        "dbname": "MAISON DE DROIT",
+        "user": "postgres",
+        "password": "rocher"
+    }
 }
