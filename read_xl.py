@@ -208,4 +208,4 @@ class Read_xl:
         return f"'{val.replace("'", "''")}'"
 
 if __name__ == "__main__":
-    Read_xl().main() 
+    Read_xl().main()
