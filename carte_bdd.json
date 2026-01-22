@@ -1,0 +1,15 @@
+{
+    "ENTRETIEN" : {
+        "N°" : "NUM",
+        "Mode" : "MODE",
+        "Durée" : "DUREE",
+        "Sexe" : "SEXE",
+        "Age" : "AGE",
+        "Vient pr" : "VIENT_PR",
+        "Sit° Fam" : "SIT_FAM",
+        "Enfts" : "ENFANT",
+        "Modèle fam." : "MODELE_FAM",
+        "Prof°" : "PROFESSION",
+        "Ress. 1" : "RESS" 
+    }
+}
