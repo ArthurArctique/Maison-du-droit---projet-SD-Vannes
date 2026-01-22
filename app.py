@@ -9,7 +9,7 @@ import requests
 import psycopg2 
 import json
 import os
-import webbrowser  # Déplacé ici pour respecter les standards
+import webbrowser  # ✅ CORRECTION : Import déplacé en haut
 from datetime import datetime
 
 # =============================================================================
@@ -432,6 +432,7 @@ def update_dashboard(fy, b1, b2, b3, refresh):
     return kpi, graphs, colors[0], colors[1], colors[2]
 
 app.index_string = '''<!DOCTYPE html><html><head>{%metas%}<title>MDD</title>{%favicon%}{%css%}<style>.nav-link-custom { color: rgba(255,255,255,0.8) !important; }.nav-link-custom.active { background-color: #D4AF37 !important; color: white !important; font-weight: bold; }.filter-box { background-color: #2C3E50; padding: 15px; border-radius: 10px; margin-top: 20px; }</style></head><body>{%app_entry%}<footer>{%config%}{%scripts%}{%renderer%}</footer></body></html>'''
+
 
 if __name__ == '__main__':
     url = "http://127.0.0.1:8050/"
