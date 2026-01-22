@@ -9,6 +9,7 @@ import requests
 import psycopg2 
 import json
 import os
+import webbrowser  # Déplacé ici pour respecter les standards
 from datetime import datetime
 
 # =============================================================================
@@ -292,10 +293,8 @@ def refresh_table(trigger):
     df_global = load_data_from_db()
     return df_global.to_dict('records')
 
-# --- CORRECTION ICI : INPUT CHANGÉ POUR SYNCHRONISATION ---
 @app.callback(Output('filter-year', 'options'), Input('data-table', 'data'))
 def update_year_filter(rows):
-    # On utilise df_global car on sait qu'elle vient d'être mise à jour par refresh_table
     if df_global.empty: return [{'label': 'Aucune donnée', 'value': 'ALL'}]
     years = sorted(df_global['Annee'].unique(), reverse=True)
     return [{'label': 'Tout', 'value': 'ALL'}] + [{'label': y, 'value': y} for y in years if y != "Inconnue"]
@@ -390,9 +389,6 @@ def export_excel_callback(n_clicks):
 def update_dashboard(fy, b1, b2, b3, refresh):
     ctx_id = ctx.triggered_id
     
-    # ----------------------------------------------------
-    # FIX: RECHARGEMENT FORCE APRES SUPPRESSION
-    # ----------------------------------------------------
     if ctx_id == "refresh-trigger":
         global df_global
         df_global = load_data_from_db()
@@ -439,9 +435,14 @@ app.index_string = '''<!DOCTYPE html><html><head>{%metas%}<title>MDD</title>{%fa
 
 if __name__ == '__main__':
     url = "http://127.0.0.1:8050/"
+    
     def open_browser():
         time.sleep(1)
-        try: requests.get(url); import webbrowser; webbrowser.open(url)
-        except: pass
+        try:
+            requests.get(url, timeout=1)
+            webbrowser.open(url)
+        except Exception:
+            pass
+
     threading.Thread(target=open_browser).start()
     app.run(debug=True)
